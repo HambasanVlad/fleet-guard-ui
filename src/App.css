@@ -1,38 +1,78 @@
-.App {
-  text-align: center;
+/* src/App.css - Nivelul GOLD PREMIUM */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+* {
+  box-sizing: border-box;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.fade-in {
+  animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Efecte Premium pentru Butoane */
+button {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.3px;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  filter: brightness(1.05);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Efecte atractive pentru Input-uri */
+input {
+  transition: all 0.3s ease !important;
+  font-family: 'Inter', sans-serif;
+  background-color: #f8fafc; /* Un fundal foarte fin pentru input-uri */
+}
+
+input:focus {
+  outline: none;
+  background-color: #ffffff;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15) !important;
+}
+
+/* Tabel Modern */
+table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+th {
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.5px;
+  color: #64748b;
+}
+
+.responsive-grid {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  flex-wrap: wrap;
+  gap: 30px;
+  align-items: flex-start;
 }
 
-.App-link {
-  color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.grid-item {
+  flex: 1 1 450px; 
+  min-width: 0;
 }
