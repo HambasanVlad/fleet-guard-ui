@@ -4,7 +4,6 @@ import { validateTruck } from './validators';
 import logoImage from './FleetGuardLogo.png'; 
 import './App.css'; 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import Auth from './Auth'; // <-- NEW: Import the Auth component
 
 const emptyForm = { 
   licensePlate: '', brand: '', model: '', year: '', purchaseDate: '',
@@ -13,27 +12,27 @@ const emptyForm = {
 
 // This is the URL of your new Express Backend!
 const API_URL = 'https://fleet-guard-api.onrender.com/api/trucks';
+const AUTH_URL = 'https://fleet-guard-api.onrender.com/api/auth';
 
 function App() {
+  // --- STATES ---
   const [theme, setTheme] = useState(Cookies.get('userTheme') || 'light');
   const [lastActivity, setLastActivity] = useState(Cookies.get('lastActivity') || 'Nicio activitate recentă');
-  
-  const [view, setView] = useState('presentation'); // Default view after login
+  const [view, setView] = useState('presentation'); 
   const [trucks, setTrucks] = useState([]); 
   const [selectedTruck, setSelectedTruck] = useState(null);
-  
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 3;
-  
   const [formData, setFormData] = useState(emptyForm);
   const [errors, setErrors] = useState({});
   const [editId, setEditId] = useState(null);
 
-  // --- NEW: Authentication State ---
+  // --- AUTHENTICATION STATES ---
   const [token, setToken] = useState(null);
+  const [isLoginView, setIsLoginView] = useState(true); // Toggles between Login and Register
+  const [loginData, setLoginData] = useState({ user: '', pass: '' });
 
-  // Check for existing session on load
-  // Check for existing session on load
+  // 1. Check for existing session on load
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
     if (savedToken) {
@@ -42,14 +41,11 @@ function App() {
     }
   }, []);
 
-  // --- NEW: INACTIVITY LOGOUT TIMER ---
+  // 2. INACTIVITY LOGOUT TIMER (15 minutes)
   useEffect(() => {
     let inactivityTimer;
-
     const resetTimer = () => {
       clearTimeout(inactivityTimer);
-      // Set timer for 15 minutes (900,000 milliseconds)
-      // Change this to 10000 (10 seconds) if you want to test it quickly!
       inactivityTimer = setTimeout(() => {
         if (localStorage.getItem('token')) {
           alert('You have been logged out due to inactivity.');
@@ -58,29 +54,22 @@ function App() {
       }, 900000); 
     };
 
-    // Listen for any user activity to reset the timer
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
     events.forEach(event => document.addEventListener(event, resetTimer));
-
-    // Start the timer when the component loads
     resetTimer();
 
-    // Cleanup listeners if the app closes
     return () => {
       clearTimeout(inactivityTimer);
       events.forEach(event => document.removeEventListener(event, resetTimer));
     };
-  }, []); // Empty dependency array means this runs once on load
+  }, []);
 
-  // --- UPDATED: Fetch data from the Backend WITH Authorization Header ---
+  // 3. Fetch Trucks Data
   const fetchTrucks = async (authToken = token) => {
-    if (!authToken) return; // Don't fetch if not logged in
-    
+    if (!authToken) return; 
     try {
       const response = await fetch(API_URL, {
-        headers: {
-          'Authorization': `Bearer ${authToken}` // Sending the digital ID card
-        }
+        headers: { 'Authorization': `Bearer ${authToken}` }
       });
       const data = await response.json();
       setTrucks(data.data || []); 
@@ -89,6 +78,50 @@ function App() {
     }
   };
 
+  // --- AUTHENTICATION LOGIC (Login & Register) ---
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    const endpoint = isLoginView ? '/login' : '/register';
+    
+    try {
+      const response = await fetch(`${AUTH_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: loginData.user, password: loginData.pass })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'A apărut o eroare');
+      }
+
+      if (isLoginView) {
+        // Login Success!
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('role', data.role);
+        setToken(data.token);
+        fetchTrucks(data.token);
+        logActivity('S-a logat utilizatorul securizat');
+      } else {
+        // Register Success! Switch back to login view
+        alert('Cont creat cu succes! Te rog să te loghezi.');
+        setIsLoginView(true);
+        setLoginData({ user: '', pass: '' });
+      }
+    } catch (err) {
+      alert(err.message); 
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+    setToken(null);
+    logActivity('Utilizatorul s-a delogat');
+  };
+
+  // --- HELPER FUNCTIONS ---
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
@@ -109,14 +142,7 @@ function App() {
     if (newView === 'detail' && truck) logActivity(`A vizualizat detaliile camionului ${truck.licensePlate}`);
   };
 
-  // --- NEW: Secure Logout Function ---
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('role');
-    setToken(null);
-    logActivity('Utilizatorul s-a delogat');
-  };
-
+  // --- CRUD OPERATIONS ---
   const handleSaveTruck = async (e) => {
     e.preventDefault();
     const validationErrors = validateTruck(formData);
@@ -130,15 +156,13 @@ function App() {
           method: method,
           headers: { 
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}` // Protect the save route
+            'Authorization': `Bearer ${token}` 
           },
           body: JSON.stringify(formData)
         });
         
         logActivity(editId ? `A modificat datele camionului ${formData.licensePlate}` : `A adăugat camionul ${formData.licensePlate} în flotă`);
-        
         await fetchTrucks();
-        
         setEditId(null);
         setFormData(emptyForm);
         setErrors({});
@@ -155,7 +179,7 @@ function App() {
     try {
       await fetch(`${API_URL}/${id}`, { 
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` } // Protect delete route
+        headers: { 'Authorization': `Bearer ${token}` } 
       });
       setTrucks(trucks.filter(t => t.id !== id));
       logActivity(`A șters camionul ${truckToDelete.licensePlate} din flotă`);
@@ -169,6 +193,7 @@ function App() {
     setEditId(truck.id);
   };
 
+  // --- DATA PROCESSING FOR UI ---
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentTrucks = trucks.slice(indexOfFirstItem, indexOfLastItem);
@@ -181,42 +206,66 @@ function App() {
     return acc;
   }, []);
 
-  // === STILURI CSS INLINE & PALETĂ MODERNĂ ===
+  // === STYLING ===
   const bgColor = theme === 'dark' ? '#0f172a' : '#f1f5f9'; 
   const cardBgColor = theme === 'dark' ? '#1e293b' : '#ffffff'; 
   const textColor = theme === 'dark' ? '#f8fafc' : '#1e293b';
   const borderColor = theme === 'dark' ? '#334155' : '#e2e8f0';
-  
-  const shadowStyle = theme === 'dark' 
-    ? '0 10px 30px rgba(0,0,0,0.5)' 
-    : '0 10px 30px rgba(148, 163, 184, 0.15)';
-
+  const shadowStyle = theme === 'dark' ? '0 10px 30px rgba(0,0,0,0.5)' : '0 10px 30px rgba(148, 163, 184, 0.15)';
   const inputStyle = { padding: '12px', margin: '5px 0', width: '100%', boxSizing: 'border-box', borderRadius: '8px', border: `1px solid ${borderColor}`, color: textColor, backgroundColor: theme === 'dark' ? '#0f172a' : '#f8fafc' };
   const btnStyle = { padding: '12px 24px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '0.95rem' };
+  const logoStyle = { maxWidth: '280px', height: 'auto', marginBottom: '30px', backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', boxShadow: shadowStyle };
+  const cardStyle = { backgroundColor: cardBgColor, padding: '25px', borderRadius: '16px', marginBottom: '20px', border: `1px solid ${borderColor}`, boxShadow: shadowStyle };
 
-  const logoStyle = {
-    maxWidth: '280px', height: 'auto', marginBottom: '30px', backgroundColor: '#ffffff',
-    padding: '20px', borderRadius: '16px', boxShadow: shadowStyle
-  };
-
-  const cardStyle = {
-    backgroundColor: cardBgColor, padding: '25px', borderRadius: '16px', 
-    marginBottom: '20px', border: `1px solid ${borderColor}`, boxShadow: shadowStyle
-  };
-
-  // --- NEW: Check if token exists, if not, render Auth screen ---
+  // ---------------------------------------------------------
+  // RENDER: LOGIN/REGISTER WALL
+  // ---------------------------------------------------------
   if (!token) {
     return (
       <div style={{ backgroundColor: bgColor, color: textColor, minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-        <Auth onLogin={(newToken) => {
-          setToken(newToken);
-          fetchTrucks(newToken);
-          logActivity('S-a logat utilizatorul securizat');
-        }} />
+        <div className="fade-in" style={{ textAlign: 'center', maxWidth: '420px', padding: '40px 30px', backgroundColor: cardBgColor, borderRadius: '20px', border: `1px solid ${borderColor}`, boxShadow: shadowStyle }}>
+          <img src={logoImage} alt="Fleet Guard Logo" style={logoStyle} />
+          
+          <h2 style={{ color: textColor, marginBottom: '25px', fontWeight: '700' }}>
+            {isLoginView ? 'Autentificare' : 'Creare Cont Nou'}
+          </h2>
+          
+          <form onSubmit={handleAuth}>
+            <input 
+              type="text" 
+              placeholder="Utilizator" 
+              required 
+              style={inputStyle} 
+              value={loginData.user}
+              onChange={e => setLoginData({...loginData, user: e.target.value})} 
+            />
+            <input 
+              type="password" 
+              placeholder="Parola" 
+              required 
+              style={inputStyle} 
+              value={loginData.pass}
+              onChange={e => setLoginData({...loginData, pass: e.target.value})} 
+            />
+            <button type="submit" style={{ ...btnStyle, width: '100%', backgroundColor: '#0f172a', color: 'white', marginTop: '20px' }}>
+              {isLoginView ? 'Intră în cont' : 'Înregistrează-te'}
+            </button>
+          </form>
+          
+          <button 
+            onClick={() => setIsLoginView(!isLoginView)}
+            style={{ marginTop: '20px', background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.9rem', textDecoration: 'underline' }}
+          >
+            {isLoginView ? 'Nu ai cont? Înregistrează-te aici' : 'Ai deja un cont? Intră aici'}
+          </button>
+        </div>
       </div>
     );
   }
 
+  // ---------------------------------------------------------
+  // RENDER: MAIN DASHBOARD (Protected by Token)
+  // ---------------------------------------------------------
   return (
     <div style={{ backgroundColor: bgColor, color: textColor, minHeight: '100vh', transition: 'background-color 0.3s, color 0.3s' }}>
       <div style={{ padding: '40px 20px', maxWidth: '1200px', margin: '0 auto' }}>
