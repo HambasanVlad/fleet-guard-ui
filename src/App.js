@@ -4,6 +4,7 @@ import { validateTruck } from './validators';
 import logoImage from './FleetGuardLogo.png'; 
 import './App.css'; 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import Auth from './Auth'; // <-- NEW: Import the Auth component
 
 const emptyForm = { 
   licensePlate: '', brand: '', model: '', year: '', purchaseDate: '',
@@ -12,39 +13,81 @@ const emptyForm = {
 
 // This is the URL of your new Express Backend!
 const API_URL = 'https://fleet-guard-api.onrender.com/api/trucks';
+
 function App() {
   const [theme, setTheme] = useState(Cookies.get('userTheme') || 'light');
   const [lastActivity, setLastActivity] = useState(Cookies.get('lastActivity') || 'Nicio activitate recentă');
   
-  const [view, setView] = useState('login'); 
-  const [trucks, setTrucks] = useState([]); // Start with an empty array, no more mockData!
+  const [view, setView] = useState('presentation'); // Default view after login
+  const [trucks, setTrucks] = useState([]); 
   const [selectedTruck, setSelectedTruck] = useState(null);
   
-  // Pagination is now handled by the backend, but we keep local state for UI limits
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 3;
   
   const [formData, setFormData] = useState(emptyForm);
   const [errors, setErrors] = useState({});
   const [editId, setEditId] = useState(null);
-  const [loginData, setLoginData] = useState({ user: '', pass: '' });
 
-  // --- NEW: Fetch data from the Backend when the app loads ---
-  const fetchTrucks = async () => {
+  // --- NEW: Authentication State ---
+  const [token, setToken] = useState(null);
+
+  // Check for existing session on load
+  // Check for existing session on load
+  useEffect(() => {
+    const savedToken = localStorage.getItem('token');
+    if (savedToken) {
+      setToken(savedToken);
+      fetchTrucks(savedToken); 
+    }
+  }, []);
+
+  // --- NEW: INACTIVITY LOGOUT TIMER ---
+  useEffect(() => {
+    let inactivityTimer;
+
+    const resetTimer = () => {
+      clearTimeout(inactivityTimer);
+      // Set timer for 15 minutes (900,000 milliseconds)
+      // Change this to 10000 (10 seconds) if you want to test it quickly!
+      inactivityTimer = setTimeout(() => {
+        if (localStorage.getItem('token')) {
+          alert('You have been logged out due to inactivity.');
+          handleLogout();
+        }
+      }, 900000); 
+    };
+
+    // Listen for any user activity to reset the timer
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(event => document.addEventListener(event, resetTimer));
+
+    // Start the timer when the component loads
+    resetTimer();
+
+    // Cleanup listeners if the app closes
+    return () => {
+      clearTimeout(inactivityTimer);
+      events.forEach(event => document.removeEventListener(event, resetTimer));
+    };
+  }, []); // Empty dependency array means this runs once on load
+
+  // --- UPDATED: Fetch data from the Backend WITH Authorization Header ---
+  const fetchTrucks = async (authToken = token) => {
+    if (!authToken) return; // Don't fetch if not logged in
+    
     try {
-      // Asking the kitchen for the menu
-      const response = await fetch(API_URL);
+      const response = await fetch(API_URL, {
+        headers: {
+          'Authorization': `Bearer ${authToken}` // Sending the digital ID card
+        }
+      });
       const data = await response.json();
       setTrucks(data.data || []); 
     } catch (error) {
       console.error("Error fetching data from API:", error);
     }
   };
-
-  useEffect(() => {
-    fetchTrucks();
-  }, []);
-  // -----------------------------------------------------------
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -66,38 +109,34 @@ function App() {
     if (newView === 'detail' && truck) logActivity(`A vizualizat detaliile camionului ${truck.licensePlate}`);
   };
 
-  const handleLogin = (e) => {
-    e.preventDefault();
-    logActivity(`S-a logat utilizatorul: ${loginData.user || 'Admin'}`);
-    navigateTo('presentation');
+  // --- NEW: Secure Logout Function ---
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+    setToken(null);
+    logActivity('Utilizatorul s-a delogat');
   };
 
-  // --- UPDATED: Send Create/Update requests to the Backend ---
   const handleSaveTruck = async (e) => {
     e.preventDefault();
     const validationErrors = validateTruck(formData);
     
     if (Object.keys(validationErrors).length === 0) {
       try {
-        if (editId) {
-          // Send PUT request to update
-          await fetch(`${API_URL}/${editId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-          });
-          logActivity(`A modificat datele camionului ${formData.licensePlate}`);
-        } else {
-          // Send POST request to create
-          await fetch(API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
-          });
-          logActivity(`A adăugat camionul ${formData.licensePlate} în flotă`);
-        }
+        const url = editId ? `${API_URL}/${editId}` : API_URL;
+        const method = editId ? 'PUT' : 'POST';
+
+        await fetch(url, {
+          method: method,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` // Protect the save route
+          },
+          body: JSON.stringify(formData)
+        });
         
-        // Refresh the list from the server
+        logActivity(editId ? `A modificat datele camionului ${formData.licensePlate}` : `A adăugat camionul ${formData.licensePlate} în flotă`);
+        
         await fetchTrucks();
         
         setEditId(null);
@@ -111,18 +150,20 @@ function App() {
     }
   };
 
-  // --- UPDATED: Send Delete request to the Backend ---
   const handleDelete = async (id) => {
     const truckToDelete = trucks.find(t => t.id === id);
     try {
-      await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
-      // Remove from local UI immediately
+      await fetch(`${API_URL}/${id}`, { 
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` } // Protect delete route
+      });
       setTrucks(trucks.filter(t => t.id !== id));
       logActivity(`A șters camionul ${truckToDelete.licensePlate} din flotă`);
     } catch (error) {
       console.error("Error deleting truck:", error);
     }
   };
+
   const handleEditClick = (truck) => {
     setFormData(truck);
     setEditId(truck.id);
@@ -163,34 +204,35 @@ function App() {
     marginBottom: '20px', border: `1px solid ${borderColor}`, boxShadow: shadowStyle
   };
 
+  // --- NEW: Check if token exists, if not, render Auth screen ---
+  if (!token) {
+    return (
+      <div style={{ backgroundColor: bgColor, color: textColor, minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        <Auth onLogin={(newToken) => {
+          setToken(newToken);
+          fetchTrucks(newToken);
+          logActivity('S-a logat utilizatorul securizat');
+        }} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ backgroundColor: bgColor, color: textColor, minHeight: '100vh', transition: 'background-color 0.3s, color 0.3s' }}>
       <div style={{ padding: '40px 20px', maxWidth: '1200px', margin: '0 auto' }}>
         
-        {/* BARĂ COOKIES */}
-        {view !== 'login' && (
-          <div className="fade-in" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: cardBgColor, padding: '15px 25px', borderRadius: '12px', marginBottom: '30px', border: `1px solid ${borderColor}`, boxShadow: shadowStyle }}>
-            <span style={{ fontSize: '0.95rem', color: theme === 'dark' ? '#cbd5e1' : '#64748b' }}>🕒 <strong style={{color: textColor}}>Ultima activitate:</strong> {lastActivity}</span>
-            <button onClick={toggleTheme} style={{ ...btnStyle, backgroundColor: theme === 'dark' ? '#3b82f6' : '#2563eb', color: 'white', padding: '10px 15px' }}>
+        {/* BARĂ COOKIES & LOGOUT */}
+        <div className="fade-in" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: cardBgColor, padding: '15px 25px', borderRadius: '12px', marginBottom: '30px', border: `1px solid ${borderColor}`, boxShadow: shadowStyle }}>
+          <span style={{ fontSize: '0.95rem', color: theme === 'dark' ? '#cbd5e1' : '#64748b' }}>🕒 <strong style={{color: textColor}}>Ultima activitate:</strong> {lastActivity}</span>
+          <div>
+            <button onClick={toggleTheme} style={{ ...btnStyle, backgroundColor: theme === 'dark' ? '#3b82f6' : '#2563eb', color: 'white', padding: '10px 15px', marginRight: '10px' }}>
               {theme === 'dark' ? '☀️ Luminos' : '🌙 Întunecat'}
             </button>
+            <button onClick={handleLogout} style={{ ...btnStyle, backgroundColor: '#ef4444', color: 'white', padding: '10px 15px' }}>
+              Deconectare
+            </button>
           </div>
-        )}
-
-        {/* 1. PAGINA DE LOGIN */}
-        {view === 'login' && (
-          <div className="fade-in" style={{ textAlign: 'center', marginTop: '10vh', maxWidth: '420px', margin: '10vh auto 0 auto', padding: '40px 30px', backgroundColor: cardBgColor, borderRadius: '20px', border: `1px solid ${borderColor}`, boxShadow: shadowStyle }}>
-            <img src={logoImage} alt="Fleet Guard Logo" style={logoStyle} />
-            <h2 style={{ color: textColor, marginBottom: '25px', fontWeight: '700' }}>Autentificare</h2>
-            <form onSubmit={handleLogin}>
-              <input type="text" placeholder="Utilizator" required style={inputStyle} onChange={e => setLoginData({...loginData, user: e.target.value})} />
-              <input type="password" placeholder="Parola" required style={inputStyle} />
-              <button type="submit" style={{ ...btnStyle, width: '100%', backgroundColor: '#0f172a', color: 'white', marginTop: '20px' }}>
-                Intră în cont
-              </button>
-            </form>
-          </div>
-        )}
+        </div>
 
         {/* 2. PAGINA DE PREZENTARE */}
         {view === 'presentation' && (
