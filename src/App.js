@@ -33,12 +33,14 @@ function App() {
   const [loginData, setLoginData] = useState({ user: '', pass: '' });
 
   // 1. Check for existing session on load
+  // 1. Check for existing session on load
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
     if (savedToken) {
       setToken(savedToken);
       fetchTrucks(savedToken); 
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 2. INACTIVITY LOGOUT TIMER (15 minutes)
@@ -62,6 +64,7 @@ function App() {
       clearTimeout(inactivityTimer);
       events.forEach(event => document.removeEventListener(event, resetTimer));
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 3. Fetch Trucks Data
